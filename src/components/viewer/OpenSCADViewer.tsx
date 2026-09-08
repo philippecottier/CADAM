@@ -74,6 +74,7 @@ export function OpenSCADPreview({
   const [selectedPart, setSelectedPart] = useState<string | null>(null);
   const [decomposeScad, setDecomposeScad] = useState<string | null>(null);
   const [decomposedPart, setDecomposedPart] = useState<string | null>(null);
+  const [decomposeLabels, setDecomposeLabels] = useState<string[] | null>(null);
   // Use context directly to avoid throwing if provider is not mounted (e.g. VisualCard)
   const meshFilesCtx = useContext(MeshFilesContext);
   // Track which files we've written to avoid re-writing unchanged blobs
@@ -127,6 +128,7 @@ export function OpenSCADPreview({
   // Leaving or regenerating a model exits CSG decomposition mode.
   useEffect(() => {
     setDecomposeScad(null);
+    setDecomposeLabels(null);
     setDecomposedPart(null);
   }, [scadCode]);
 
@@ -284,6 +286,13 @@ export function OpenSCADPreview({
           group.children.forEach((child, index) => {
             if (!(child instanceof Mesh)) return;
             const mat = child.material as MeshStandardMaterial;
+            if (
+              decomposeLabels &&
+              decomposeLabels.length === group.children.length
+            ) {
+              child.name = decomposeLabels[index] ?? child.name;
+              child.userData.partName = child.name;
+            }
             if (!mat) return;
             if (index === 0) {
               mat.color.set(0x9aa0a6);
@@ -316,7 +325,7 @@ export function OpenSCADPreview({
     return () => {
       cancelled = true;
     };
-  }, [amfOutput, effectiveScad, decomposeScad]);
+  }, [amfOutput, effectiveScad, decomposeScad, decomposeLabels]);
 
   // Release the last mounted group's and geometry's GPU resources on unmount.
   useEffect(() => {
@@ -361,6 +370,7 @@ export function OpenSCADPreview({
                   className="bg-adam-neutral-600 pointer-events-auto rounded px-2 py-0.5 hover:bg-adam-neutral-500"
                   onClick={() => {
                     setDecomposeScad(null);
+                    setDecomposeLabels(null);
                     setDecomposedPart(null);
                     setSelectedPart(null);
                   }}
@@ -380,6 +390,7 @@ export function OpenSCADPreview({
                       : null;
                     if (d) {
                       setDecomposeScad(d.scad);
+                      setDecomposeLabels(d.labels);
                       setDecomposedPart(selectedPart);
                       setSelectedPart(null);
                     }

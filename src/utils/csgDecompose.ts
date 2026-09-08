@@ -8,6 +8,7 @@
 export type CsgDecomposition = {
   scad: string;
   toolCount: number;
+  labels: string[];
 };
 
 function escapeName(name: string): string {
@@ -153,6 +154,54 @@ function ensureTerminated(stmt: string): string {
   return t.endsWith(';') || t.endsWith('}') ? t : t + ';';
 }
 
+const RESERVED_CALLS = new Set([
+  'translate',
+  'rotate',
+  'scale',
+  'mirror',
+  'multmatrix',
+  'color',
+  'resize',
+  'hull',
+  'minkowski',
+  'union',
+  'difference',
+  'intersection',
+  'render',
+  'offset',
+  'linear_extrude',
+  'rotate_extrude',
+  'projection',
+  'cube',
+  'sphere',
+  'cylinder',
+  'polyhedron',
+  'square',
+  'circle',
+  'polygon',
+  'text',
+  'import',
+  'surface',
+  'children',
+  'let',
+  'for',
+  'if',
+  'else',
+  'echo',
+  'assert',
+  'each',
+]);
+
+function toolLabel(stmt: string, partName: string, index: number): string {
+  const re = /([A-Za-z_][A-Za-z0-9_]*)\s*\(/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(stmt)) !== null) {
+    const id = m[1];
+    if (id && !RESERVED_CALLS.has(id)) return id;
+  }
+  return partName + '_coupe_' + index;
+}
+
 export function decomposePartScad(
   source: string,
   partName: string,
@@ -173,5 +222,8 @@ export function decomposePartScad(
     ' ====\n' +
     emitted +
     '\n';
-  return { scad, toolCount: children.length - 1 };
+  const labels = children.map((c, i) =>
+    i === 0 ? partName : toolLabel(c, partName, i),
+  );
+  return { scad, toolCount: children.length - 1, labels };
 }
