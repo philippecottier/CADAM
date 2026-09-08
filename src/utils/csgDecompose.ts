@@ -87,63 +87,65 @@ function splitStatements(block: string): string[] {
 
 function definitionsHead(source: string): string {
   const lines = source.split(String.fromCharCode(10));
-  const keep: boolean[] = new Array(lines.length).fill(true);
-  let depth = 0;
+  const out: string[] = [];
   let i = 0;
   while (i < lines.length) {
     const t = lines[i].trim();
     if (
-      depth === 0 &&
-      t &&
-      !t.startsWith('//') &&
-      !t.startsWith('/*') &&
-      !t.startsWith('*')
+      t === '' ||
+      t.startsWith('//') ||
+      t.startsWith('/*') ||
+      t.startsWith('*')
     ) {
-      const isDef = /^(module|function)\s+[A-Za-z_]/.test(t);
-      const isAssign = /^[A-Za-z_][A-Za-z0-9_]*\s*=/.test(t);
-      if (!isDef && !isAssign) {
-        let p = 0;
-        let b = 0;
-        let br = 0;
-        let seen = false;
-        let k = i;
-        for (; k < lines.length; k++) {
-          for (const ch of lines[k]) {
-            if (ch === '(') p++;
-            else if (ch === ')') p--;
-            else if (ch === '[') br++;
-            else if (ch === ']') br--;
-            else if (ch === '{') {
-              b++;
-              seen = true;
-            } else if (ch === '}') b--;
-          }
-          const bal = p === 0 && b === 0 && br === 0;
-          const endsSemi = /;\s*$/.test(lines[k].trim());
-          if (bal && (seen || endsSemi)) {
-            let nxt = '';
-            for (let m = k + 1; m < lines.length; m++) {
-              const tt = lines[m].trim();
-              if (tt) {
-                nxt = tt;
-                break;
-              }
+      out.push(lines[i]);
+      i++;
+      continue;
+    }
+    let p = 0;
+    let br = 0;
+    let b = 0;
+    let hasBrace = false;
+    let end = i;
+    for (let k = i; k < lines.length; k++) {
+      for (const ch of lines[k]) {
+        if (ch === '(') p++;
+        else if (ch === ')') p--;
+        else if (ch === '[') br++;
+        else if (ch === ']') br--;
+        else if (ch === '{') {
+          b++;
+          hasBrace = true;
+        } else if (ch === '}') b--;
+      }
+      const endsSemi = /;\s*$/.test(lines[k].trim());
+      if (p === 0 && br === 0 && b === 0) {
+        if (hasBrace) {
+          let nxt = '';
+          for (let m = k + 1; m < lines.length; m++) {
+            const tt = lines[m].trim();
+            if (tt) {
+              nxt = tt;
+              break;
             }
-            if (!/^else\b/.test(nxt)) break;
           }
+          if (!/^else\b/.test(nxt)) {
+            end = k;
+            break;
+          }
+        } else if (endsSemi) {
+          end = k;
+          break;
         }
-        for (let x = i; x <= k && x < lines.length; x++) keep[x] = false;
-        i = k + 1;
-        continue;
       }
     }
-    for (const ch of lines[i]) {
-      if (ch === '{') depth++;
-      else if (ch === '}') depth--;
+    const isDef = /^(module|function)\s+[A-Za-z_]/.test(t);
+    const isAssign = /^[A-Za-z_][A-Za-z0-9_]*\s*=/.test(t);
+    if (isDef || isAssign) {
+      for (let x = i; x <= end; x++) out.push(lines[x]);
     }
-    i++;
+    i = end + 1;
   }
-  return lines.filter((_v, idx) => keep[idx]).join(String.fromCharCode(10));
+  return out.join(String.fromCharCode(10));
 }
 
 function ensureTerminated(stmt: string): string {
