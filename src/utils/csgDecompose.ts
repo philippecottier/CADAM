@@ -87,57 +87,63 @@ function splitStatements(block: string): string[] {
 
 function definitionsHead(source: string): string {
   const lines = source.split(String.fromCharCode(10));
-  const isAssemblyLine = (t: string): boolean => {
-    if (!t || t.startsWith('//') || t.startsWith('/*') || t.startsWith('*'))
-      return false;
-    if (/^(module|function)\s+[A-Za-z_]/.test(t)) return false;
-    if (/^[A-Za-z_][A-Za-z0-9_]*\s*=/.test(t)) return false;
-    return (
-      /^(let|if|for)\s*\(/.test(t) ||
-      /^(translate|rotate|scale|mirror|color|union|difference|intersection|hull|minkowski)\s*[({]/.test(
-        t,
-      ) ||
-      /^[A-Za-z_][A-Za-z0-9_]*\s*\(/.test(t)
-    );
-  };
-  for (let guard = 0; guard < 50; guard++) {
-    let depth = 0;
-    let aStart = -1;
-    for (let i = 0; i < lines.length; i++) {
-      const t = lines[i].trim();
-      if (depth === 0 && isAssemblyLine(t)) {
-        aStart = i;
-        break;
-      }
-      for (const ch of lines[i]) {
-        if (ch === '{') depth++;
-        else if (ch === '}') depth--;
+  const keep: boolean[] = new Array(lines.length).fill(true);
+  let depth = 0;
+  let i = 0;
+  while (i < lines.length) {
+    const t = lines[i].trim();
+    if (
+      depth === 0 &&
+      t &&
+      !t.startsWith('//') &&
+      !t.startsWith('/*') &&
+      !t.startsWith('*')
+    ) {
+      const isDef = /^(module|function)\s+[A-Za-z_]/.test(t);
+      const isAssign = /^[A-Za-z_][A-Za-z0-9_]*\s*=/.test(t);
+      if (!isDef && !isAssign) {
+        let p = 0;
+        let b = 0;
+        let br = 0;
+        let seen = false;
+        let k = i;
+        for (; k < lines.length; k++) {
+          for (const ch of lines[k]) {
+            if (ch === '(') p++;
+            else if (ch === ')') p--;
+            else if (ch === '[') br++;
+            else if (ch === ']') br--;
+            else if (ch === '{') {
+              b++;
+              seen = true;
+            } else if (ch === '}') b--;
+          }
+          const bal = p === 0 && b === 0 && br === 0;
+          const endsSemi = /;\s*$/.test(lines[k].trim());
+          if (bal && (seen || endsSemi)) {
+            let nxt = '';
+            for (let m = k + 1; m < lines.length; m++) {
+              const tt = lines[m].trim();
+              if (tt) {
+                nxt = tt;
+                break;
+              }
+            }
+            if (!/^else\b/.test(nxt)) break;
+          }
+        }
+        for (let x = i; x <= k && x < lines.length; x++) keep[x] = false;
+        i = k + 1;
+        continue;
       }
     }
-    if (aStart < 0) break;
-    let bd = 0;
-    let seenBrace = false;
-    let aEnd = -1;
-    for (let j = aStart; j < lines.length; j++) {
-      for (const ch of lines[j]) {
-        if (ch === '{') {
-          bd++;
-          seenBrace = true;
-        } else if (ch === '}') bd--;
-      }
-      if (seenBrace && bd === 0) {
-        aEnd = j;
-        break;
-      }
-      if (!seenBrace && /;\s*$/.test(lines[j].trim())) {
-        aEnd = j;
-        break;
-      }
+    for (const ch of lines[i]) {
+      if (ch === '{') depth++;
+      else if (ch === '}') depth--;
     }
-    if (aEnd < 0) aEnd = lines.length - 1;
-    lines.splice(aStart, aEnd - aStart + 1);
+    i++;
   }
-  return lines.join(String.fromCharCode(10));
+  return lines.filter((_v, idx) => keep[idx]).join(String.fromCharCode(10));
 }
 
 function ensureTerminated(stmt: string): string {
