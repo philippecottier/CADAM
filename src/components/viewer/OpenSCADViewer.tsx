@@ -2,13 +2,14 @@ import { useOpenSCAD } from '@/hooks/useOpenSCAD';
 import { useCallback, useEffect, useState, useContext, useRef } from 'react';
 import { ThreeScene } from '@/components/viewer/ThreeScene';
 import { STLLoader } from 'three/addons/loaders/STLLoader.js';
-import { BufferGeometry, Group } from 'three';
+import { BufferGeometry, Group, Mesh, MeshStandardMaterial } from 'three';
 import { CircleAlert, Loader2, Wrench } from 'lucide-react';
 import {
   buildColoredGroupFromOff,
   disposeColoredGroup,
 } from '@/utils/coloredOffMesh';
 import { buildPartsGroup, partsFromScad } from '@/utils/partsFromAmf';
+import { decomposePartScad } from '@/utils/csgDecompose';
 import { emitPartMention } from '@/lib/partMention';
 import { Button } from '@/components/ui/button';
 import OpenSCADError from '@/lib/OpenSCADError';
@@ -71,6 +72,8 @@ export function OpenSCADPreview({
   const [coloredGroup, setColoredGroup] = useState<Group | null>(null);
   const [partsGroup, setPartsGroup] = useState<Group | null>(null);
   const [selectedPart, setSelectedPart] = useState<string | null>(null);
+  const [decomposeScad, setDecomposeScad] = useState<string | null>(null);
+  const [decomposedPart, setDecomposedPart] = useState<string | null>(null);
   // Use context directly to avoid throwing if provider is not mounted (e.g. VisualCard)
   const meshFilesCtx = useContext(MeshFilesContext);
   // Track which files we've written to avoid re-writing unchanged blobs
@@ -118,20 +121,28 @@ export function OpenSCADPreview({
   );
 
   // Recompile the preview whenever the current SCAD code changes.
+  const effectiveScad = decomposeScad ?? scadCode;
+
+  // Leaving or regenerating a model exits CSG decomposition mode.
   useEffect(() => {
-    if (!scadCode) return;
+    setDecomposeScad(null);
+    setDecomposedPart(null);
+  }, [scadCode]);
+
+  useEffect(() => {
+    if (!effectiveScad) return;
 
     const compileWithMeshFiles = async () => {
       try {
-        await prepareMeshFiles(scadCode);
-        compileScad(scadCode);
+        await prepareMeshFiles(effectiveScad);
+        compileScad(effectiveScad);
       } catch (err) {
         console.error('[OpenSCAD] Error preparing files for compilation:', err);
       }
     };
 
     compileWithMeshFiles();
-  }, [scadCode, compileScad, prepareMeshFiles]);
+  }, [effectiveScad, compileScad, prepareMeshFiles]);
 
   // Register a parent-owned DXF exporter for the current SCAD code. The export
   // runs only when the user chooses DXF from the download menu.
@@ -253,7 +264,7 @@ export function OpenSCADPreview({
       setSelectedPart(null);
     };
 
-    if (!(amfOutput instanceof Blob) || !scadCode) {
+    if (!(amfOutput instanceof Blob) || !effectiveScad) {
       clearPartsGroup();
       return;
     }
@@ -262,7 +273,26 @@ export function OpenSCADPreview({
       .text()
       .then((text) => {
         if (cancelled) return;
-        const group = buildPartsGroup(text, partsFromScad(scadCode));
+        const group = buildPartsGroup(text, partsFromScad(effectiveScad));
+        if (decomposeScad) {
+          group.children.forEach((child, index) => {
+            if (!(child instanceof Mesh)) return;
+            const mat = child.material as MeshStandardMaterial;
+            if (!mat) return;
+            if (index === 0) {
+              mat.color.set(0x9aa0a6);
+              mat.transparent = false;
+              mat.opacity = 1;
+              mat.depthWrite = true;
+            } else {
+              mat.color.set(0xff3b30);
+              mat.transparent = true;
+              mat.opacity = 0.4;
+              mat.depthWrite = false;
+            }
+            mat.needsUpdate = true;
+          });
+        }
         if (group.children.length === 0) {
           if (!cancelled) clearPartsGroup();
           return;
@@ -280,7 +310,7 @@ export function OpenSCADPreview({
     return () => {
       cancelled = true;
     };
-  }, [amfOutput, scadCode]);
+  }, [amfOutput, effectiveScad, decomposeScad]);
 
   // Release the last mounted group's and geometry's GPU resources on unmount.
   useEffect(() => {
@@ -317,11 +347,42 @@ export function OpenSCADPreview({
               isMobile={isMobile}
               backgroundColor={backgroundColor}
             />
-            {selectedPart && (
-              <div className="pointer-events-none absolute left-2 top-2 rounded bg-adam-neutral-800/80 px-2 py-1 text-xs text-adam-text-primary">
-                {selectedPart}
+            {decomposedPart ? (
+              <div className="absolute left-2 top-2 flex items-center gap-2 rounded bg-adam-neutral-800/80 px-2 py-1 text-xs text-adam-text-primary">
+                <span>Construction : {decomposedPart}</span>
+                <button
+                  type="button"
+                  className="bg-adam-neutral-600 pointer-events-auto rounded px-2 py-0.5 hover:bg-adam-neutral-500"
+                  onClick={() => {
+                    setDecomposeScad(null);
+                    setDecomposedPart(null);
+                    setSelectedPart(null);
+                  }}
+                >
+                  Retour
+                </button>
               </div>
-            )}
+            ) : selectedPart ? (
+              <div className="absolute left-2 top-2 flex items-center gap-2 rounded bg-adam-neutral-800/80 px-2 py-1 text-xs text-adam-text-primary">
+                <span>{selectedPart}</span>
+                <button
+                  type="button"
+                  className="bg-adam-neutral-600 pointer-events-auto rounded px-2 py-0.5 hover:bg-adam-neutral-500"
+                  onClick={() => {
+                    const d = scadCode
+                      ? decomposePartScad(scadCode, selectedPart)
+                      : null;
+                    if (d) {
+                      setDecomposeScad(d.scad);
+                      setDecomposedPart(selectedPart);
+                      setSelectedPart(null);
+                    }
+                  }}
+                >
+                  Décomposer
+                </button>
+              </div>
+            ) : null}
           </div>
         ) : (
           <>
