@@ -86,6 +86,7 @@ export function OpenSCADPreview({
   // fresh one, and even when OFF wins the render the STL still parses, so
   // the previous geometry's VRAM must be released on replacement.
   const mountedGeometryRef = useRef<BufferGeometry | null>(null);
+  const lastBuiltAmfRef = useRef<Blob | null>(null);
   // Capture the brand fallback color in a ref so the OFF-parse effect can
   // read the current value without listing `color` as a dependency —
   // otherwise every fallback-color change would rebuild the entire
@@ -269,6 +270,11 @@ export function OpenSCADPreview({
       return;
     }
 
+    // Only (re)build parts when NEW geometry arrives, not when effectiveScad
+    // flips first (avoids clearing parts against a stale AMF, which killed
+    // picking after leaving decomposition).
+    if (amfOutput === lastBuiltAmfRef.current) return;
+    lastBuiltAmfRef.current = amfOutput;
     amfOutput
       .text()
       .then((text) => {
